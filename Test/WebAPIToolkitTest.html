@@ -1,0 +1,392 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>WebAPIToolkit-Test</title>
+	<meta charset="utf-8" />
+    <script></script>
+    <script src="CRMTest.js"></script>
+    <script src="../WebAPIToolkit.min.js"></script>
+    <link href="qunit-2.0.1.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="qunit"></div>
+    <div id="qunit-fixture"></div>
+    <script src="qunit-2.0.1.js"></script>
+    <script>
+
+        /* UNIT-TEst for WebAPIToolkit 
+        * Requirements:
+        * - CRM 2016 organisation
+        * - At least two active systemusers with privileges to create,read,update,assign,delete the standard entities
+        * - To run this test directly from the browser, it is necessary:
+        *     - Set the URL to your CRM-server on CRMTest.js 
+        *     - Add the server to your trusted internet sites and and activate Access across different domains
+        */
+
+        var SYSTEMUSERID = ""; 
+        QUnit.test("WebApiToolkit basic functions sync", function (assert) {
+
+            // Test: Retrieve contacts and use on the contacts to set the primarycontactid
+            var Contacts = WebAPIToolkit.Web.Fetch(
+                "<fetch mapping=\"logical\" version=\"1.0\">" +
+                    "<entity name=\"contact\">" +
+                        "<attribute name=\"contactid\" />" +
+                        "<attribute name=\"fullname\" />" +
+                        "<filter type=\"or\">" +
+                            "<condition attribute=\"statecode\" operator=\"eq\" value=\"0\" />" +
+                        "</filter>" +
+                    "</entity>" +
+                "</fetch>");
+
+            var entityName = "account";
+            var NewAccount = new WebAPIToolkit.BusinessEntity(entityName);
+
+            NewAccount.SetText("name", "WebAPIToolkit UnitTest (This can be deleted)");
+            NewAccount.SetBoolean("creditonhold", false);
+            NewAccount.SetText("description", "This is the description of the sample account");
+            NewAccount.SetDouble("address1_latitude", 47.63958);                
+            NewAccount.SetCurrency("revenue", 5000000);                
+            NewAccount.SetOptionSet("accountcategorycode", 1);
+            NewAccount.SetLookup("primarycontactid", "contact", Contacts[0].ID);
+            
+            var ID = NewAccount.Update();
+            assert.notEqual(ID, null, "CRM record created")
+
+            var RetrievedAccount = WebAPIToolkit.Web.RetrieveWithParams(entityName, ID, "$select=name&$expand=primarycontactid($select=contactid,fullname)");
+            assert.equal(RetrievedAccount.GetField("primarycontactid").Value.fullname, Contacts[0].GetField("fullname").Value, "Retrieved expanded CRM record found");
+
+
+            // Retrieve with given columns
+            var RetrievedAccount = WebAPIToolkit.Web.Retrieve(entityName, ID,
+                ["name", "creditonhold", "description", "revenue", "accountcategorycode", "address1_latitude", "_primarycontactid_value", "_ownerid_value"]);
+            assert.equal(ID, RetrievedAccount.ID, "CRM record retrieved");
+            assert.equal(NewAccount.GetField("name").Value, RetrievedAccount.GetField("name").Value, "CRM record -> name is equal");
+            assert.equal(NewAccount.GetField("address1_latitude").Value, RetrievedAccount.GetField("address1_latitude").Value, "CRM record -> address1_latitude is equal");
+            assert.equal(NewAccount.GetField("revenue").Value, RetrievedAccount.GetField("revenue").Value, "CRM record -> revenue is equal");
+            assert.equal(NewAccount.GetField("accountcategorycode").Value, RetrievedAccount.GetField("accountcategorycode").Value, "CRM record -> accountcategorycode is equal");
+            assert.equal(NewAccount.GetField("creditonhold").Value, RetrievedAccount.GetField("creditonhold").Value, "CRM record -> creditonhold is equal");
+            assert.equal(NewAccount.GetField("primarycontactid").Value, RetrievedAccount.GetField("primarycontactid").Value, "CRM record -> primarycontactid is equal");
+            SYSTEMUSERID = RetrievedAccount.GetField("ownerid").Value;
+
+            // Remove lookup and 
+            var UpdateAccount = new WebAPIToolkit.BusinessEntity(entityName, ID);
+            UpdateAccount.SetLookup("primarycontactid", null);
+            UpdateAccount.SetCurrency("revenue", null);
+            UpdateAccount.SetCurrency("creditonhold", null);
+            UpdateAccount.SetCurrency("description", null);
+            UpdateAccount.Update();
+
+            var RetrievedAccount = WebAPIToolkit.Web.RetrieveWithParams(entityName, ID, "$select=name&$expand=primarycontactid($select=contactid,fullname)");
+            assert.equal(RetrievedAccount.GetField("primarycontactid").Value, null, "CRM record -> Lookup cleared");
+
+            var RetrievedAccount = WebAPIToolkit.Web.Retrieve(entityName, ID,
+                ["name", "creditonhold", "description", "revenue", "accountcategorycode", "address1_latitude", "_primarycontactid_value", "_ownerid_value"]);
+            assert.equal(RetrievedAccount.GetField("description").Value, null, "CRM record -> description is empty");
+            assert.equal(RetrievedAccount.GetField("creditonhold").Value, null, "CRM record -> address1_latitude is empty");
+            assert.equal(RetrievedAccount.GetField("revenue").Value, null, "CRM record -> revenue is empty");
+
+            // description
+            WebAPIToolkit.Web.Update(entityName, ID, { "description": "überschrieben" });
+            RetrievedAccount = WebAPIToolkit.Web.Retrieve(entityName, ID, ["description"]);
+            assert.equal("überschrieben", RetrievedAccount.GetField("description").Value, "CRM record -> description is equal");
+            
+            // SetState
+            WebAPIToolkit.Web.SetState(entityName, ID, 1, 2);
+            RetrievedAccount = WebAPIToolkit.Web.Retrieve(entityName, ID, ["statuscode", "statecode"]);
+            assert.equal(RetrievedAccount.GetField("statuscode").Value, 2, "CRM record -> statuscode is equal");
+            
+            var Accounts = WebAPIToolkit.Web.Fetch(
+                "<fetch mapping=\"logical\" version=\"1.0\">" +
+                    "<entity name=\"account\">" +
+                        "<attribute name=\"accountid\" />" +
+                        "<attribute name=\"name\" />" +
+                        "<filter type=\"or\">" +
+                            "<condition attribute=\"name\" operator=\"eq\" value=\"" + NewAccount.GetField("name").Value + "\" />" +
+                        "</filter>" +
+                    "</entity>" +
+                "</fetch>");
+
+            assert.ok(Accounts.length > 0, "CRM Fetch successfully")
+            
+            WebAPIToolkit.Web.Delete(entityName, ID);
+            try {
+                WebAPIToolkit.Web.Retrieve(entityName, ID, ["name", "creditonhold", "description", "revenue", "accountcategorycode", "address1_latitude"]);
+            }
+            catch (ex) {
+                if (ex.indexOf("Does Not Exist") != -1) {
+                    RetrievedAccount = null;
+                }
+            }
+            assert.equal(RetrievedAccount, null, "CRM record deleted successfully");
+            
+            //Users
+            var Users = WebAPIToolkit.Web.Fetch(
+               "<fetch mapping=\"logical\" version=\"1.0\">" +
+                   "<entity name=\"systemuser\">" +
+                       "<attribute name=\"systemuserid\" />" +
+                       "<attribute name=\"fullname\" />" +
+                       "<filter type=\"and\">" +
+                           "<condition attribute=\"isdisabled\" operator=\"eq\" value=\"false\" />" +
+                           "<condition attribute=\"systemuserid\" operator=\"neq\" value=\"" + SYSTEMUSERID + "\" />" +
+                           "<condition attribute=\"accessmode\" operator=\"ne\" value=\"3\" />" +
+                           "<condition attribute=\"accessmode\" operator=\"ne\" value=\"5\" />" +
+                       "</filter>" +
+                   "</entity>" +
+               "</fetch>");
+            WebAPIToolkit.Web.Assign(entityName, ID, "systemuser", Users[0].ID);
+
+            RetrievedAccount = WebAPIToolkit.Web.Retrieve(entityName, ID,
+                ["name", "creditonhold", "description", "revenue", "accountcategorycode", "address1_latitude", "_primarycontactid_value", "_ownerid_value"]);
+            assert.equal(RetrievedAccount.GetField("ownerid").ID, Users[0].ID, "CRM record -> ownerid is equal");
+
+        });
+
+        QUnit.test("Check association calls", function (assert) {
+            var Accounts = WebAPIToolkit.Web.Fetch(
+              "<fetch mapping=\"logical\" version=\"1.0\" count=\"1\">" +
+                  "<entity name=\"account\">" +
+                      "<attribute name=\"accountid\" />" +
+                  "</entity>" +
+              "</fetch>");
+
+            var Competitor = new WebAPIToolkit.BusinessEntity("competitor");
+            Competitor.SetText("name", "Competitor (this can be deleted)");
+            var CompID = Competitor.Update();
+
+            var TransactionCurrencys = WebAPIToolkit.Web.Fetch(
+              "<fetch mapping=\"logical\" version=\"1.0\" count=\"1\">" +
+                  "<entity name=\"transactioncurrency\">" +
+                      "<attribute name=\"transactioncurrencyid\" />" +
+                  "</entity>" +
+              "</fetch>");
+
+            var Opportunity = new WebAPIToolkit.BusinessEntity("opportunity");
+            Opportunity.SetLookupExplicit("customerid", "account", Accounts[0].ID);
+            Opportunity.SetLookup("transactioncurrencyid", "transactioncurrency", TransactionCurrencys[0].ID);
+            Opportunity.SetText("name", "Test VC (this can be deleted)");
+            var OppID = Opportunity.Update();
+
+            WebAPIToolkit.Web.Associate("opportunitycompetitors_association", "opportunity", OppID, "competitor", CompID);
+            
+            var Competitors = WebAPIToolkit.Web.Fetch(
+                "<fetch version=\"1.0\" output-format=\"xml-platform\" mapping=\"logical\" distinct=\"true\">" +
+                  "<entity name=\"competitor\">" +
+                    "<attribute name=\"name\" />" +
+                    "<attribute name=\"websiteurl\" />" +
+                    "<attribute name=\"competitorid\" />" +
+                    "<link-entity name=\"opportunitycompetitors\" from=\"competitorid\" to=\"competitorid\" visible=\"false\" intersect=\"true\">" +
+                      "<link-entity name=\"opportunity\" from=\"opportunityid\" to=\"opportunityid\" alias=\"ab\">" +
+                        "<filter type=\"and\">" +
+                          "<condition attribute=\"opportunityid\" operator=\"eq\" uiname=\"Test VC (this can be deleted)\" uitype=\"opportunity\" value=\"" + OppID + "\" />" +
+                        "</filter>" +
+                      "</link-entity>" +
+                    "</link-entity>" +
+                  "</entity>" +
+                "</fetch>")
+
+            assert.equal(Competitors.length, 1, "Einen Mitbewerber gefunden")
+            WebAPIToolkit.Web.Disassociate("opportunitycompetitors_association", "opportunity", OppID, "competitor", CompID);
+
+            Competitors = WebAPIToolkit.Web.Fetch(
+                "<fetch version=\"1.0\" output-format=\"xml-platform\" mapping=\"logical\" distinct=\"true\">" +
+                  "<entity name=\"competitor\">" +
+                    "<attribute name=\"name\" />" +
+                    "<attribute name=\"websiteurl\" />" +
+                    "<attribute name=\"competitorid\" />" +
+                    "<link-entity name=\"opportunitycompetitors\" from=\"competitorid\" to=\"competitorid\" visible=\"false\" intersect=\"true\">" +
+                      "<link-entity name=\"opportunity\" from=\"opportunityid\" to=\"opportunityid\" alias=\"ab\">" +
+                        "<filter type=\"and\">" +
+                          "<condition attribute=\"opportunityid\" operator=\"eq\" uiname=\"Test VC (this can be deleted)\" uitype=\"opportunity\" value=\"" + OppID + "\" />" +
+                        "</filter>" +
+                      "</link-entity>" +
+                    "</link-entity>" +
+                  "</entity>" +
+                "</fetch>")
+
+            assert.equal(Competitors.length, 0, "Keinen Mitbewerber gefunden")
+        });
+
+        QUnit.test("Execute messages", function (assert) {
+
+            var temp = WebAPIToolkit.Web.Request("GET", "RetrieveVersion()", null, null);
+            assert.notEqual(temp.Version, null);
+        });
+
+        QUnit.test("WebApiToolkit basic functions async with callbacks", function (assert) {
+            var done = assert.async();
+
+            // Test: Retrieve contacts and use on the contacts to set the primarycontactid
+            WebAPIToolkit.Web.Fetch(
+                "<fetch mapping=\"logical\" version=\"1.0\">" +
+                    "<entity name=\"contact\">" +
+                        "<attribute name=\"contactid\" />" +
+                        "<attribute name=\"fullname\" />" +
+                        "<filter type=\"or\">" +
+                            "<condition attribute=\"statecode\" operator=\"eq\" value=\"0\" />" +
+                        "</filter>" +
+                    "</entity>" +
+                "</fetch>", function (Contacts) {
+
+                    var entityName = "account";
+                    var NewAccount = new WebAPIToolkit.BusinessEntity(entityName);
+
+                    NewAccount.SetText("name", "WebAPIToolkit UnitTest (This can be deleted)");
+                    NewAccount.SetBoolean("creditonhold", false);
+                    NewAccount.SetText("description", "This is the description of the sample account");
+                    NewAccount.SetDouble("address1_latitude", 47.63958);
+                    NewAccount.SetCurrency("revenue", 5000000);
+                    NewAccount.SetOptionSet("accountcategorycode", 1);
+                    NewAccount.SetLookup("primarycontactid", "contact", Contacts[0].ID);
+
+                    NewAccount.Update(function (ID) {
+                        assert.notEqual(ID, null, "CRM record created")
+
+                        WebAPIToolkit.Web.RetrieveWithParams(entityName, ID, "$select=name&$expand=primarycontactid($select=contactid,fullname)", function (RetrievedAccount) {
+                            assert.equal(RetrievedAccount.GetField("primarycontactid").Value.fullname, Contacts[0].GetField("fullname").Value,
+                                "Retrieved expanded CRM record found");
+
+                            WebAPIToolkit.Web.Retrieve(entityName, ID,
+                                ["name", "creditonhold", "description", "revenue", "accountcategorycode", "address1_latitude", "_primarycontactid_value", "_ownerid_value"], function (RetrievedAccount) {
+                                    assert.equal(ID, RetrievedAccount.ID, "CRM record retrieved");
+                                    assert.equal(NewAccount.GetField("name").Value, RetrievedAccount.GetField("name").Value, "CRM record -> name is equal");
+                                    assert.equal(NewAccount.GetField("address1_latitude").Value, RetrievedAccount.GetField("address1_latitude").Value, "CRM record -> address1_latitude is equal");
+                                    assert.equal(NewAccount.GetField("revenue").Value, RetrievedAccount.GetField("revenue").Value, "CRM record -> revenue is equal");
+                                    assert.equal(NewAccount.GetField("accountcategorycode").Value, RetrievedAccount.GetField("accountcategorycode").Value, "CRM record -> accountcategorycode is equal");
+                                    assert.equal(NewAccount.GetField("creditonhold").Value, RetrievedAccount.GetField("creditonhold").Value, "CRM record -> creditonhold is equal");
+                                    assert.equal(NewAccount.GetField("primarycontactid").Value, RetrievedAccount.GetField("primarycontactid").Value, "CRM record -> primarycontactid is equal");
+
+                                    // Remove lookup and 
+                                    var UpdateAccount = new WebAPIToolkit.BusinessEntity(entityName, ID);
+                                    UpdateAccount.SetLookup("primarycontactid", null);
+                                    UpdateAccount.SetCurrency("revenue", 5000001);
+                                    UpdateAccount.SetCurrency("creditonhold", true);
+                                    UpdateAccount.Update(function () {
+                                        var RetrievedAccount = WebAPIToolkit.Web.RetrieveWithParams(entityName, ID, "$select=name&$expand=primarycontactid($select=contactid,fullname)");
+                                        assert.equal(RetrievedAccount.GetField("primarycontactid").Value, null, "CRM record -> Lookup cleared");
+
+                                        // description
+                                        WebAPIToolkit.Web.Update(entityName, ID, { "description": "überschrieben" }, function () {
+                                            WebAPIToolkit.Web.Retrieve(entityName, ID, ["description"], function (RetrievedAccount) {
+                                                assert.equal("überschrieben", RetrievedAccount.GetField("description").Value, "CRM record -> description is equal");
+
+                                                // SetState
+                                                WebAPIToolkit.Web.SetState(entityName, ID, 1, 2, function () {
+                                                    WebAPIToolkit.Web.Retrieve(entityName, ID, ["statuscode", "statecode"], function (RetrievedAccount) {
+                                                        assert.equal(RetrievedAccount.GetField("statuscode").Value, 2, "CRM record -> statuscode is equal");
+
+                                                        WebAPIToolkit.Web.Fetch(
+                                                            "<fetch mapping=\"logical\" version=\"1.0\">" +
+                                                                "<entity name=\"account\">" +
+                                                                    "<attribute name=\"accountid\" />" +
+                                                                    "<attribute name=\"name\" />" +
+                                                                    "<filter type=\"or\">" +
+                                                                        "<condition attribute=\"name\" operator=\"eq\" value=\"" + NewAccount.GetField("name").Value + "\" />" +
+                                                                    "</filter>" +
+                                                                "</entity>" +
+                                                            "</fetch>", function (Accounts) {
+                                                                assert.ok(Accounts.length > 0, "CRM Fetch successfully")
+
+                                                                //Users
+                                                                WebAPIToolkit.Web.Fetch(
+                                                                   "<fetch mapping=\"logical\" version=\"1.0\">" +
+                                                                       "<entity name=\"systemuser\">" +
+                                                                           "<attribute name=\"systemuserid\" />" +
+                                                                           "<attribute name=\"fullname\" />" +
+                                                                           "<filter type=\"and\">" +
+                                                                               "<condition attribute=\"isdisabled\" operator=\"eq\" value=\"false\" />" +
+                                                                               "<condition attribute=\"systemuserid\" operator=\"neq\" value=\"" + SYSTEMUSERID + "\" />" +
+                                                                               "<condition attribute=\"accessmode\" operator=\"ne\" value=\"3\" />" +
+                                                                               "<condition attribute=\"accessmode\" operator=\"ne\" value=\"5\" />" +
+                                                                           "</filter>" +
+                                                                       "</entity>" +
+                                                                   "</fetch>", function (Users) {
+
+                                                                       WebAPIToolkit.Web.Assign(entityName, ID, "systemuser", Users[0].ID,function () {
+                                                                           WebAPIToolkit.Web.Retrieve(entityName, ID,
+                                                                           ["name", "creditonhold", "description", "revenue", "accountcategorycode", "address1_latitude", "_primarycontactid_value", "_ownerid_value"], function (RetrievedAccount) {
+                                                                               assert.equal(RetrievedAccount.GetField("ownerid").ID, Users[0].ID, "CRM record -> ownerid is equal");
+
+                                                                               WebAPIToolkit.Web.Delete(entityName, ID, function () {
+                                                                                   try {
+                                                                                       WebAPIToolkit.Web.Retrieve(entityName, ID, ["name", "creditonhold", "description", "revenue", "accountcategorycode", "address1_latitude"]);
+                                                                                   }
+                                                                                   catch (ex) {
+                                                                                       if (ex.indexOf("Does Not Exist") != -1) {
+                                                                                           RetrievedAccount = null;
+                                                                                       }
+                                                                                   }
+                                                                                   assert.equal(RetrievedAccount, null, "CRM record deleted successfully");
+                                                                                   done();
+                                                                                   DeleteTestData();
+                                                                               });
+                                                                           });
+                                                                       });
+                                                                   });
+
+
+
+                                                        });
+                                                    });
+                                                });
+                                            });
+                                        });
+                                    });
+                                });
+                        });
+                    });
+                });
+        });
+
+        function DeleteTestData() {
+            // Clear all created records
+
+            // Test: Retrieve contacts and use on the contacts to set the primarycontactid
+            var Accounts = WebAPIToolkit.Web.Fetch(
+                "<fetch mapping=\"logical\" version=\"1.0\">" +
+                    "<entity name=\"account\">" +
+                        "<attribute name=\"accountid\" />" +
+                        "<filter type=\"or\">" +
+                            "<condition attribute=\"name\" operator=\"eq\" value=\"WebAPIToolkit UnitTest (This can be deleted)\" />" +
+                        "</filter>" +
+                    "</entity>" +
+                "</fetch>");
+            for (var i = 0; i < Accounts.length; i++) {
+                WebAPIToolkit.Web.Delete(Accounts[i].LogicalName, Accounts[i].ID);
+            }
+
+            // Test: Retrieve contacts and use on the contacts to set the primarycontactid
+            var Competitors = WebAPIToolkit.Web.Fetch(
+                "<fetch mapping=\"logical\" version=\"1.0\">" +
+                    "<entity name=\"competitor\">" +
+                        "<attribute name=\"competitorid\" />" +
+                        "<filter type=\"or\">" +
+                            "<condition attribute=\"name\" operator=\"eq\" value=\"Competitor (this can be deleted)\" />" +
+                        "</filter>" +
+                    "</entity>" +
+                "</fetch>");
+            for (var i = 0; i < Competitors.length; i++) {
+                WebAPIToolkit.Web.Delete(Competitors[i].LogicalName, Competitors[i].ID);
+            }
+
+            // Test: Retrieve contacts and use on the contacts to set the primarycontactid
+            var Opportunitys = WebAPIToolkit.Web.Fetch(
+                "<fetch mapping=\"logical\" version=\"1.0\">" +
+                    "<entity name=\"opportunity\">" +
+                        "<attribute name=\"opportunityid\" />" +
+                        "<filter type=\"or\">" +
+                            "<condition attribute=\"name\" operator=\"eq\" value=\"Test VC (this can be deleted)\" />" +
+                        "</filter>" +
+                    "</entity>" +
+                "</fetch>");
+            for (var i = 0; i < Opportunitys.length; i++) {
+                WebAPIToolkit.Web.Delete(Opportunitys[i].LogicalName, Opportunitys[i].ID);
+            }
+
+        }
+
+    </script>
+
+
+</body>
+</html>
