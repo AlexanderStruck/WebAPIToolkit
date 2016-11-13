@@ -10,7 +10,6 @@ Credits:
   The idea of this library was inspired by the XrmServiceToolkit (https://xrmservicetoolkit.codeplex.com/)
 
 *****************************************************************************************************************
-* Version 1.0.0.0: 
-* - Support for all CRUD-operations
-* - Support for assigning records and set the state of records.
-*****************************************************************************************************************
+Version 1.0.0.0: 
+ - Support for all CRUD-operations
+ - Support for assigning records and set the state of records.
