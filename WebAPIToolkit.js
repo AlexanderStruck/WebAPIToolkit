@@ -1,7 +1,9 @@
-﻿/* Web-API Toolkit for Microsoft Dynamics CRM 2016
+﻿/* Web-API Toolkit: JavaScript library to work with the WebAPI for Microsoft Dynamics CRM 2016 / Dynamics 365
 *
-* This API is designed to simplify the work with the Web-API of CRM 2016. The design of the interface is on
-* purpose similar to the XrmServiceToolkit. This is meant to help developers get used to this API faster.
+* Web-API Toolkit is a JavaScript library to help developers using the WebAPI which has been released with
+* Microsoft Dynamics CRM 2016. This API wraps all common operations to work with data in Microsoft Dynamics CRM.
+* The design of the interface is on purpose similar to the XrmServiceToolkit. This is meant to help developers 
+* get used to this API faster.
 *
 *
 * Credits:
