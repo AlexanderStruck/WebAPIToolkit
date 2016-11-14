@@ -6,8 +6,10 @@ The design of the interface is on purpose similar to the XrmServiceToolkit. This
 get used to this API faster.
 
 Credits:
-  To the company ascendit (www.ascendit.de) for supporting this project
-  The idea of this library was inspired by the XrmServiceToolkit (https://xrmservicetoolkit.codeplex.com/)
+
+To the company ascendit (www.ascendit.de) for supporting this project
+
+The idea of this library was inspired by the XrmServiceToolkit (https://xrmservicetoolkit.codeplex.com/)
 
 *****************************************************************************************************************
 Version 1.0.0.0: 
