@@ -15,6 +15,12 @@
 * - Support for all CRUD-operations
 * - Support for assigning records and set the state of records.
 *****************************************************************************************************************
+* Version 1.0.0.1: 
+* - Bugfix: Missing calling of callback-function in raw execute statements
+*****************************************************************************************************************
+* Version 1.0.0.2: 
+* - Since CRM V.8.2.1.207 the retrievement of fetchXML does not need twice encodeURIComponent anymore
+*****************************************************************************************************************
 */
 
 WebAPIToolkit = function () {
@@ -25,6 +31,7 @@ WebAPIToolkit = function () {
 
 WebAPIToolkit.Common = function () {
     
+
     return {
         NoGuidSet: "No guid set",
         NoLogicalNameSet: "No logicalname set",
@@ -64,13 +71,18 @@ WebAPIToolkit.Common = function () {
 
             return "";
         },
+        CRMVersion: null,
         GetVersion: function () {
             /// <summary>Gets the version of the current CRM organisation</summary>
             /// <returns type="string">Retrieved version</returns>
 
+            if (!!WebAPIToolkit.Common.CRMVersion) {
+                return WebAPIToolkit.Common.CRMVersion;
+            }
             // This is available on the normal CRM forms. If it is not available, the version will be retrieved via the CRM-Message RetrieveVersion()
-            if (!!window["APPLICATION_FULL_VERSION"]) {
-                return window["APPLICATION_FULL_VERSION"];
+            else if (!!window["APPLICATION_FULL_VERSION"]) {
+                WebAPIToolkit.Common.CRMVersion = window["APPLICATION_FULL_VERSION"];
+                return WebAPIToolkit.Common.CRMVersion;
             }
             else {
                 // CRM 2016
@@ -83,7 +95,8 @@ WebAPIToolkit.Common = function () {
                 req.setRequestHeader("Prefer", "odata.include-annotations=*");
                 req.send();
 
-                return JSON.parse(req.response).Version;
+                WebAPIToolkit.Common.CRMVersion = JSON.parse(req.response).Version;
+                return WebAPIToolkit.Common.CRMVersion;
             }
         },
         GetApiURL: function () {
@@ -155,7 +168,7 @@ WebAPIToolkit.Common = function () {
             return "";
         }
     };
-} ();
+}();
 
 WebAPIToolkit.BusinessEntity = function (LogicalName, ID) {
     ///<summary>
@@ -163,7 +176,7 @@ WebAPIToolkit.BusinessEntity = function (LogicalName, ID) {
     ///</summary>
     ///<param name="logicalName" type="String"> LogicalName of the entity</param>
     ///<param name="id" type="String">ID of the CRM-record</param>
-    
+
     // Private Propertys
     var id = null;
     var logicalname = "";
@@ -181,7 +194,7 @@ WebAPIToolkit.BusinessEntity = function (LogicalName, ID) {
         RetrievedJson = ID;
         JsonObject = ID;
         id = ID["" + LogicalName + "id"]
-    }    
+    }
     logicalname = LogicalName;
     // End Constructor 
 
@@ -283,23 +296,23 @@ WebAPIToolkit.BusinessEntity = function (LogicalName, ID) {
                 Result = {
                     LogicalName: JsonObject[Field + "@odata.bind"].substr(1, JsonObject[Field + "@odata.bind"].length - 40),
                     ID: JsonObject[Field + "@odata.bind"].substr(JsonObject[Field + "@odata.bind"].length - 37, 36),
-                    Value : JsonObject[Field + "@odata.bind"].substr(JsonObject[Field + "@odata.bind"].length - 37, 36),
+                    Value: JsonObject[Field + "@odata.bind"].substr(JsonObject[Field + "@odata.bind"].length - 37, 36),
                 }
             }
             else if (Result == null && (!!JsonObject["_" + Field + "_value"] || !!JsonObject[Field + "@Microsoft.Dynamics.CRM.lookuplogicalname"])) {
                 var lookupField = !!JsonObject["_" + Field + "_value"] ? "_" + Field + "_value" : Field;
                 Result = {
                     ID: JsonObject[lookupField],
-                    Value : JsonObject[lookupField],
+                    Value: JsonObject[lookupField],
                     LogicalName: JsonObject[lookupField + "@Microsoft.Dynamics.CRM.lookuplogicalname"],
                     AssociatedNavigationproperty: JsonObject[lookupField + "@Microsoft.Dynamics.CRM.associatednavigationproperty"],
                     FormattedValue: JsonObject[lookupField + "@OData.Community.Display.V1.FormattedValue"]
                 };
             }
-            
+
             if (Result != null && Result.FormattedValue == null && !!JsonObject[Field + "@OData.Community.Display.V1.FormattedValue"]) {
                 Result.FormattedValue = JsonObject[Field + "@OData.Community.Display.V1.FormattedValue"];
-            } 
+            }
             if (Result == null) {
                 Result = { Value: null };
             }
@@ -342,7 +355,7 @@ WebAPIToolkit.Web = function () {
         /// <param name="CallbackArgument2" type="object">For internal purposes</param>
         /// <param name="CallbackArgument3" type="object">For internal purposes</param>
         /// <param name="CallbackArgument4" type="object">For internal purposes</param>
-        
+
         // 200 OK
         if (Status == 200) {
             var TempJson = JSON.parse(Response);
@@ -374,11 +387,16 @@ WebAPIToolkit.Web = function () {
                 }
             }
             else {
-                return TempJson;
+                if (!!Callback) {
+                    Callback(TempJson);
+                }
+                else {
+                    return TempJson;
+                }
             }
         }
-        // 204 No Content: Successfully executed but no Content in body
-        else if (Status == 200 || Status == 204) {            
+            // 204 No Content: Successfully executed but no Content in body
+        else if (Status == 200 || Status == 204) {
             var ID = null;
             if (!!ODataEntityId) {
                 var ID = ODataEntityId.substr(ODataEntityId.length - 38).substring(1, 37); //get only GUID  
@@ -391,7 +409,7 @@ WebAPIToolkit.Web = function () {
                 return ID;
             }
         }
-        // Not Modified: 
+            // Not Modified: 
         else if (Status == 304) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
@@ -401,13 +419,13 @@ WebAPIToolkit.Web = function () {
         else if (Status == 401) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw  "401:" + error.message;
+            throw "401:" + error.message;
         }
             // Unauthorized
         else if (Status == 403) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw  "403:" + error.message;
+            throw "403:" + error.message;
         }
             // Payload Too Large
         else if (Status == 413) {
@@ -419,19 +437,19 @@ WebAPIToolkit.Web = function () {
         else if (Status == 400) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw  "400:" + error.message;
+            throw "400:" + error.message;
         }
             // Not Found
         else if (Status == 404) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw  "404:" + error.message;
+            throw "404:" + error.message;
         }
             // Method Not Allowed
         else if (Status == 405) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw  "405:" + error.message;
+            throw "405:" + error.message;
         }
         else {
             var error = JSON.parse(Response).error;
@@ -531,7 +549,12 @@ WebAPIToolkit.Web = function () {
                 throw new "entityName not found";
             }
 
-            return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + encodeURI(fetchXml), null, callback, entityName);
+            if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "8.2.1.207") < 0) {
+                return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + fetchXml, null, callback, entityName);
+            }
+            else {
+                return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + fetchXml, null, callback, entityName);
+            }            
         },
         Retrieve: function (entityName, id, columnSet, callback) {
             /// <summary>Retrieves for the given entity a record with the given id and the given columns</summary>
@@ -566,8 +589,7 @@ WebAPIToolkit.Web = function () {
         RetrieveMultiple: function (entityName, query, callback) {
             return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + (!!query ? "?" + query : ""), null, callback, entityName);
         },
-        Create: function (entityName, jsonObject, callback)
-        {
+        Create: function (entityName, jsonObject, callback) {
             /// <summary>Creates a record</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="jsonObject" type="object">JSON</param>
@@ -590,12 +612,12 @@ WebAPIToolkit.Web = function () {
                     if (key.indexOf("@odata.bind") != -1 && jsonObject[key] == null) {
                         delete jsonObject[key];
                         if (!!callback) {
-                            ExecuteRequest("DELETE", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + key.replace("@odata.bind", "") + "/$ref", null, function (ID, p1,p2,p3,p4) {
+                            ExecuteRequest("DELETE", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + key.replace("@odata.bind", "") + "/$ref", null, function (ID, p1, p2, p3, p4) {
                                 WebAPIToolkit.Web.Update(p1, p2, p3, p4);
                             }, null, entityName, id, jsonObject, callback);
                             loop = true;
                             break;
-                        } else { 
+                        } else {
                             WebAPIToolkit.Web.ClearLookup(entityName, id, key.replace("@odata.bind", ""));
                         }
                     }
@@ -614,8 +636,7 @@ WebAPIToolkit.Web = function () {
 
             return ExecuteRequest("DELETE", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/", null, callback, entityName);
         },
-        Associate: function (relationshipName, targetEntityName, targetId, relatedEntityName, relatedID, callback)
-        {
+        Associate: function (relationshipName, targetEntityName, targetId, relatedEntityName, relatedID, callback) {
             /// <summary>Associates two records</summary>
             /// <param name="relationshipName" type="string">Name of the relationship</param>
             /// <param name="targetEntityName" type="guid">Logicalname of the target entity</param>
@@ -682,5 +703,6 @@ WebAPIToolkit.Web = function () {
         }
     };
 
-} ();
+}();
+
 
