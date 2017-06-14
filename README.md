@@ -17,6 +17,7 @@ Version 1.0.0.0:
  - Support for assigning records and set the state of records.
 *****************************************************************************************************************
 Version 1.0.0.1: 
+ - Bugfix: Setting lookup to null did not clear the lookup
  - Bugfix: Missing calling of callback-function in raw execute statements
 *****************************************************************************************************************
 Version 1.0.0.2: 
