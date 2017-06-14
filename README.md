@@ -15,3 +15,10 @@ The idea of this library was inspired by the XrmServiceToolkit (https://xrmservi
 Version 1.0.0.0: 
  - Support for all CRUD-operations
  - Support for assigning records and set the state of records.
+*****************************************************************************************************************
+* Version 1.0.0.1: 
+* - Bugfix: Missing calling of callback-function in raw execute statements
+*****************************************************************************************************************
+* Version 1.0.0.2: 
+* - Since CRM V.8.2.1.207 the retrievement of fetchXML does not need twice encodeURIComponent anymore
+*****************************************************************************************************************
