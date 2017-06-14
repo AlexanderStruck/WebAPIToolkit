@@ -16,10 +16,11 @@
 * - Support for assigning records and set the state of records.
 *****************************************************************************************************************
 * Version 1.0.0.1: 
+* - Bugfix: Setting lookup to null did not clear the lookup
 * - Bugfix: Missing calling of callback-function in raw execute statements
 *****************************************************************************************************************
 * Version 1.0.0.2: 
-* - Since CRM V.8.2.1.207 the retrievement of fetchXML does not need twice encodeURIComponent anymore
+* - Since CRM V.8.2.1.207 the retrievement of fetchXML does not need twice encodeURIComponent anymore (fixed via version comparison)
 *****************************************************************************************************************
 */
 
