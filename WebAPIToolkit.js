@@ -9,7 +9,6 @@
 * Credits:
 *   To the company ascendit (www.ascendit.de) for supporting this project
 *   The idea of this library was inspired by the XrmServiceToolkit (https://xrmservicetoolkit.codeplex.com/)
-* 
 *****************************************************************************************************************
 * Version 1.0.0.0: 
 * - Support for all CRUD-operations
@@ -22,6 +21,18 @@
 * Version 1.0.0.2: 
 * - Since CRM V.8.2.1.207 the retrievement of fetchXML does not need twice encodeURIComponent anymore (fixed via version comparison)
 *****************************************************************************************************************
+* Version 1.0.0.3: 
+* - Since CRM V.9.x the retrievement of fetchXML is made with a batchrequest (https://docs.microsoft.com/en-us/dynamics365/customer-engagement/developer/webapi/execute-batch-operations-using-web-api)
+*****************************************************************************************************************
+* Version 1.0.0.4: 
+* - Adding Errorhandling for all asynchronous calls
+* - Added function ExecuteWorkflow()
+* - Added new parameter for Fetch(): 
+*       All: Retrieves all records for all pages for the given query
+* **MIRGATION to 1.0.0.4**
+* .> Since CRM 9.0 the result of a LinkedEntity + attribute is returned differently. 
+*    Instead of <Alias>_x002e_<Attribute> the result is <Alias>.<Attribute>. Adjust your code accordingly.
+*****************************************************************************************************************
 */
 
 WebAPIToolkit = function () {
@@ -31,7 +42,7 @@ WebAPIToolkit = function () {
 };
 
 WebAPIToolkit.Common = function () {
-    
+
 
     return {
         NoGuidSet: "No guid set",
@@ -80,7 +91,7 @@ WebAPIToolkit.Common = function () {
             if (!!WebAPIToolkit.Common.CRMVersion) {
                 return WebAPIToolkit.Common.CRMVersion;
             }
-            // This is available on the normal CRM forms. If it is not available, the version will be retrieved via the CRM-Message RetrieveVersion()
+                // This is available on the normal CRM forms. If it is not available, the version will be retrieved via the CRM-Message RetrieveVersion()
             else if (!!window["APPLICATION_FULL_VERSION"]) {
                 WebAPIToolkit.Common.CRMVersion = window["APPLICATION_FULL_VERSION"];
                 return WebAPIToolkit.Common.CRMVersion;
@@ -88,7 +99,7 @@ WebAPIToolkit.Common = function () {
             else {
                 // CRM 2016
                 var req = new XMLHttpRequest();
-                req.open("GET", encodeURI(WebAPIToolkit.Common.Merge(WebAPIToolkit.Common.Merge(Xrm.Page.context.getClientUrl(), "/api/data/v8.0/"), "RetrieveVersion()")), false);
+                req.open("GET", encodeURI(WebAPIToolkit.Common.Merge(WebAPIToolkit.Common.Merge(Xrm.Page.context.getClientUrl(), "/api/data/v8.2/"), "RetrieveVersion()")), false);
                 req.setRequestHeader("Accept", "application/json");
                 req.setRequestHeader("Content-Type", "application/json; charset=utf-8");
                 req.setRequestHeader("OData-MaxVersion", "4.0");
@@ -103,7 +114,13 @@ WebAPIToolkit.Common = function () {
         GetApiURL: function () {
             /// <summary>Gets the current WebAPI-URL</summary>
             /// <returns type="string">WebAPI-URL</returns>
-            if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "8.2.0.0") >= 0) {
+            if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "9.1.0.0") >= 0) {
+                var URL = "/api/data/v9.1/";
+            }
+            else if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "9.0.0.0") >= 0) {
+                var URL = "/api/data/v9.0/";
+            }
+            else if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "8.2.0.0") >= 0) {
                 var URL = "/api/data/v8.2/";
             }
             else if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "8.1.0.0") >= 0) {
@@ -124,9 +141,9 @@ WebAPIToolkit.Common = function () {
             // found here: http://stackoverflow.com/questions/6832596/how-to-compare-software-version-number-using-js-only-number
 
             var v1parts = ("" + v1).split("."),
-            v2parts = ("" + v2).split("."),
-            minLength = Math.min(v1parts.length, v2parts.length),
-            p1, p2, i;
+                v2parts = ("" + v2).split("."),
+                minLength = Math.min(v1parts.length, v2parts.length),
+                p1, p2, i;
             // Compare tuple pair-by-pair. 
             for (i = 0; i < minLength; i++) {
                 // Convert to integer if possible, because "8" > "10".
@@ -326,16 +343,16 @@ WebAPIToolkit.BusinessEntity = function (LogicalName, ID) {
 
             return JsonObject;
         },
-        Update: function (Callback) {
+        Update: function (Callback, ErrorHandler) {
             /// <summary>Updates or creates the record. Record will be created when the ID is not set</summary>
             /// <param name="Callback" type="function">Callback</param>
             /// <returns>Result of Update, if there are</returns>
 
             if (!WebAPIToolkit.Common.IsGuid(id)) {
-                return WebAPIToolkit.Web.Create(logicalname, JsonObject, Callback);
+                return WebAPIToolkit.Web.Create(logicalname, JsonObject, Callback, ErrorHandler);
             }
             else {
-                return WebAPIToolkit.Web.Update(logicalname, id, JsonObject, Callback);
+                return WebAPIToolkit.Web.Update(logicalname, id, JsonObject, Callback, ErrorHandler);
             }
         },
         RetrievedJson: RetrievedJson,
@@ -345,12 +362,13 @@ WebAPIToolkit.BusinessEntity = function (LogicalName, ID) {
 };
 
 WebAPIToolkit.Web = function () {
-    function HandleRequestResponse(Status, Response, ODataEntityId, Callback, entityName, CallbackArgument1, CallbackArgument2, CallbackArgument3, CallbackArgument4) {
+    function HandleRequestResponse(Status, Response, ODataEntityId, Callback, ErrorHandler, entityName, CallbackArgument1, CallbackArgument2, CallbackArgument3, CallbackArgument4) {
         /// <summary>Handles the response of the WebAPI-Call</summary>
         /// <param name="Status" type="string">Status</param>
         /// <param name="Response" type="string/Json">Response-JSON</param>
         /// <param name="ODataEntityId" type="string">ODataEntityId</param>
-        /// <param name="Callback" type="string/exception">Callback-method if async</param>
+        /// <param name="Callback" type="function">Callback-method if async</param>
+        /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
         /// <param name="entityName" type="string">entityName of the request</param>
         /// <param name="CallbackArgument1" type="object">For internal purposes</param>
         /// <param name="CallbackArgument2" type="object">For internal purposes</param>
@@ -414,57 +432,98 @@ WebAPIToolkit.Web = function () {
         else if (Status == 304) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw "304:" + error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler("304:" + error.message);
+            }
+            else {
+                throw "304:" + error.message;
+            }
         }
             // Forbidden
         else if (Status == 401) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw "401:" + error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler("401:" + error.message);
+            }
+            else {
+                throw "401:" + error.message;
+            }
         }
             // Unauthorized
         else if (Status == 403) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw "403:" + error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler("403:" + error.message);
+            }
+            else {
+                throw "403:" + error.message;
+            }
         }
             // Payload Too Large
         else if (Status == 413) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw "413:" + error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler("413:" + error.message);
+            }
+            else {
+                throw "413:" + error.message;
+            }
         }
             // BadRequest
         else if (Status == 400) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw "400:" + error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler("400:" + error.message);
+            }
+            else {
+                throw "400:" + error.message;
+            }
         }
             // Not Found
         else if (Status == 404) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw "404:" + error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler("404:" + error.message);
+            }
+            else {
+                throw "404:" + error.message;
+            }
         }
             // Method Not Allowed
         else if (Status == 405) {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw "405:" + error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler("405:" + error.message);
+            }
+            else {
+                throw "405:" + error.message;
+            }
         }
         else {
             var error = JSON.parse(Response).error;
             console.log(error.message);
-            throw error.message;
+            if (!!ErrorHandler) {
+                ErrorHandler(error.message);
+            }
+            else {
+                throw error.message;
+            }
         }
     }
     // Events
-    function ExecuteRequest(Method, Uri, Msg, Callback, LogicalName, CallbackArgument1, CallbackArgument2, CallbackArgument3, CallbackArgument4) {
+    function ExecuteRequest(Method, Uri, Msg, Callback, ErrorHandler, LogicalName, CallbackArgument1, CallbackArgument2, CallbackArgument3, CallbackArgument4, PagingCookie) {
         /// <summary>Executes the WebAPI-Request</summary>
         /// <param name="Method" type="string">GET / POST / PATCH / DELETE</param>
         /// <param name="Uri" type="string/exception">URI of the request</param>
         /// <param name="Msg" type="string/exception">Message</param>
-        /// <param name="Callback" type="string/exception">Callback-method if async</param>
+        /// <param name="Callback" type="function">Callback-method if async</param>
+        /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
         /// <param name="LogicalName" type="string">LogicalName</param>
         /// <param name="CallbackArgument1" type="object">For internal purposes</param>
         /// <param name="CallbackArgument2" type="object">For internal purposes</param>
@@ -472,16 +531,49 @@ WebAPIToolkit.Web = function () {
         /// <param name="CallbackArgument4" type="object">For internal purposes</param>
         /// <returns>Result of the request if sync</returns>
 
+        var requestBody = "";
+        var contentType = "";
+        var encodedUri = "";
+        if (Uri.indexOf("fetchXml=<") != -1 && Uri.indexOf("paging-cookie=") != -1) {
+            encodedUri = WebAPIToolkit.Common.Merge(WebAPIToolkit.Common.Merge(GetServerUrl(), WebAPIToolkit.Common.GetApiURL()), Uri);
+        }
+        else {
+            encodedUri = encodeURI(WebAPIToolkit.Common.Merge(WebAPIToolkit.Common.Merge(GetServerUrl(), WebAPIToolkit.Common.GetApiURL()), Uri));
+        }
+        
+        var requestUri = "";
+
+        if (Msg === "$batch") {
+            contentType = "multipart/mixed;boundary=batch_fetchquery";
+            requestBody =
+              "--batch_fetchquery\n" +
+              "Content-Type: application/http\n" +
+              "Content-Transfer-Encoding: binary\n" +
+              "\n" +
+              "GET " +
+              encodedUri +
+              " HTTP/1.1\n" +
+              'Prefer: odata.include-annotations="*"\n' +
+              "\n" +
+              "--batch_fetchquery--";
+            requestUri = WebAPIToolkit.Common.Merge(WebAPIToolkit.Common.Merge(GetServerUrl(), WebAPIToolkit.Common.GetApiURL()), "$batch");
+
+        } else {
+            contentType = "application/json; charset=utf-8";
+            requestBody = Msg;
+            requestUri = encodeURI(WebAPIToolkit.Common.Merge(WebAPIToolkit.Common.Merge(GetServerUrl(), WebAPIToolkit.Common.GetApiURL()), Uri));
+        }
+
         var req = new XMLHttpRequest();
-        req.open(Method, encodeURI(WebAPIToolkit.Common.Merge(WebAPIToolkit.Common.Merge(GetServerUrl() + WebAPIToolkit.Common.GetApiURL()) + Uri)), !!Callback);
+        req.open(Method, requestUri, !!Callback);
         req.setRequestHeader("Accept", "application/json");
-        req.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+        req.setRequestHeader("Content-Type", contentType);
         req.setRequestHeader("OData-MaxVersion", "4.0");
         req.setRequestHeader("OData-Version", "4.0");
         req.setRequestHeader("Prefer", "odata.include-annotations=*");
-        //if (Method.toLowerCase() == 'get') { req.setRequestHeader("Prefer", "odata.include-annotations=*"); }
+
         if (Method.toLowerCase() == "post" || Method.toLowerCase() == "patch") {
-            req.send(Msg);
+            req.send(requestBody);
         }
         else {
             req.send();
@@ -490,12 +582,71 @@ WebAPIToolkit.Web = function () {
         if (!!Callback) {
             req.onreadystatechange = function () {
                 if (req.readyState == 4) { // "complete"
-                    HandleRequestResponse(this.status, this.responseText, this.getResponseHeader("OData-EntityId"), Callback, LogicalName, CallbackArgument1, CallbackArgument2, CallbackArgument3, CallbackArgument4);
+                    var data = this.responseText;
+                    if (Msg === "$batch") {
+                        data = this.responseText.substring(this.responseText.indexOf("{"), this.responseText.lastIndexOf("}") + 1);
+                    }
+                    HandleRequestResponse(this.status, data, this.getResponseHeader("OData-EntityId"), Callback, ErrorHandler, LogicalName, CallbackArgument1, CallbackArgument2, CallbackArgument3, CallbackArgument4);
                 }
             };
         }
         else {
-            return HandleRequestResponse(req.status, req.response, req.getResponseHeader("OData-EntityId"), null, LogicalName);
+            var data = req.response;
+            if (Msg === "$batch") {
+                data = req.response.substring(req.response.indexOf("{"), req.response.lastIndexOf("}") + 1);
+            }
+
+            return HandleRequestResponse(req.status, data, req.getResponseHeader("OData-EntityId"), null, null, LogicalName);
+        }
+    }
+    function decodePagingCookie(pageCookie) {
+        /// <summary>Decodes the given pagecookie</summary>
+        /// <param name="pageCookie" type="string">pageCookie</param>
+        /// <returns>Result</returns>
+
+        var pagingcookie = new DOMParser().parseFromString(pageCookie, "text/xml").getElementsByTagName('cookie')[0].getAttribute('pagingcookie');
+
+        /*double decode and format. */
+        var decodedpagingCookie = decodeURIComponent(decodeURIComponent(pagingcookie));
+        var decodedpagingCookie = decodeURIComponent(decodedpagingCookie).replace(/&/g, '&amp;').replace(/</g, '&lt;').
+            replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+        return decodedpagingCookie;
+    }
+    function FetchAll(fetchXml, entityName, page, pagingCookie, Callback, ErrorHandler, ResultItems) {
+        /// <summary>Fetches all records</summary>
+        /// <param name="fetchXml" type="string">FetchXML</param>
+        /// <param name="entityName" type="string">entityName</param>
+        /// <param name="page" type="integer">number of pagination (1: first)</param>
+        /// <param name="pagingCookie" type="string">pagingCookie</param>
+        /// <param name="Callback" type="function">Callback-method if async</param>
+        /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
+        /// <param name="ResultItems" type="array">Resultitems</param>
+        /// <returns>Result of the request if sync</returns>
+
+
+        if (!!Callback) {
+            var fetch = fetchXml.replace("<fetch ", "<fetch count='5000' page='" + page + "' paging-cookie='" + pagingCookie + "' ");
+            ExecuteRequest("POST", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + encodeURIComponent(fetch), "$batch", function (Result) {
+
+                Result.value.forEach(function (item) { ResultItems[ResultItems.length] = new WebAPIToolkit.BusinessEntity(entityName, item) });
+                if (Result['@Microsoft.Dynamics.CRM.morerecords']) {
+                    FetchAll(fetchXml, entityName, page + 1, decodePagingCookie(Result['@Microsoft.Dynamics.CRM.fetchxmlpagingcookie']), Callback, ErrorHandler, ResultItems);
+                }
+                else {
+                    Callback(ResultItems);
+                }
+            }, ErrorHandler, null, null, null, null, null, pagingCookie);
+        }
+        else {
+            var Result = null;
+            do {
+                var fetch = fetchXml.replace("<fetch ", "<fetch count='5000' page='" + ++page + "' paging-cookie='" + pagingCookie + "' ");
+                Result = ExecuteRequest("POST", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + encodeURIComponent(fetch), "$batch", null, null, null, null, null, null, null, pagingCookie);
+                Result.value.forEach(function (item) { ResultItems[ResultItems.length] = new WebAPIToolkit.BusinessEntity(entityName, item) });
+                pagingCookie = decodePagingCookie(Result['@Microsoft.Dynamics.CRM.fetchxmlpagingcookie']);
+            } while (Result['@Microsoft.Dynamics.CRM.morerecords'])
+
         }
     }
     function GetEntityNameOfFetch(fetchXml) {
@@ -529,20 +680,23 @@ WebAPIToolkit.Web = function () {
     }
 
     return {
-        Request: function (Method, URI, MSG, callback) {
+        Request: function (Method, URI, MSG, callback, ErrorHandler) {
             /// <summary>Sends a WebAPI-Request</summary>
             /// <param name="Method" type="string">GET / POST / PATCH / DELETE</param>
             /// <param name="URI" type="string">URI</param>
             /// <param name="MSG" type="object">JSON</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
             /// <returns>Result of the request if sync</returns>
 
-            return ExecuteRequest(Method, URI, MSG, callback);
+            return ExecuteRequest(Method, URI, MSG, callback, ErrorHandler);
         },
-        Fetch: function (fetchXml, callback) {
+        Fetch: function (fetchXml, callback, ErrorHandler, All) {
             /// <summary>Sends a FetchXML-request</summary>
             /// <param name="fetchXml" type="string">FetchXML</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
+            /// <param name="All" type="bool">default (false), true: returns all records from all pages</param>
             /// <returns>Result of the request if sync</returns>
 
             var entityName = GetEntityNameOfFetch(fetchXml);
@@ -550,19 +704,28 @@ WebAPIToolkit.Web = function () {
                 throw new "entityName not found";
             }
 
-            if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "8.2.1.207") < 0) {
-                return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + fetchXml, null, callback, entityName);
+            if (All) {
+                FetchAll(fetchXml, entityName, 1, "", callback, ErrorHandler, []);
             }
             else {
-                return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + fetchXml, null, callback, entityName);
-            }            
+                if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "9.0.0.0") >= 0) {
+                    return ExecuteRequest("POST", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + fetchXml, "$batch", callback, ErrorHandler, entityName);
+                }
+                else if (WebAPIToolkit.Common.VersionCompare(WebAPIToolkit.Common.GetVersion(), "8.2.1.207") < 0) {
+                    return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + fetchXml, null, callback, ErrorHandler, entityName);
+                }
+                else {
+                    return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "?fetchXml=" + fetchXml, null, callback, ErrorHandler, entityName);
+                }
+            }
         },
-        Retrieve: function (entityName, id, columnSet, callback) {
+        Retrieve: function (entityName, id, columnSet, callback, ErrorHandler) {
             /// <summary>Retrieves for the given entity a record with the given id and the given columns</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="id" type="guid">GUID of the record</param>
             /// <param name="columnSet" type="string">Array of columns; if empty, all columns will be retrieved</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
             /// <returns>Result of the request if sync</returns>
 
             var select = "";
@@ -572,39 +735,43 @@ WebAPIToolkit.Web = function () {
                     select += columnSet[i] + ((i + 1) == columnSet.length ? "" : ",");
                 }
             } else {
-                select = "?$select";
+                select = "?$select=*";
             }
 
-            return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + (!!select ? select : ""), null, callback, entityName);
+
+            return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + (!!select ? select : ""), null, callback, ErrorHandler, entityName);
         },
-        RetrieveWithParams: function (entityName, id, Params, callback) {
+        RetrieveWithParams: function (entityName, id, Params, callback, ErrorHandler) {
             /// <summary>Retrieves for the given entity a record with the given id and the given columns</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="id" type="guid">GUID of the record</param>
             /// <param name="Params" type="string">WebAPI-String</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
             /// <returns>Result of the request if sync</returns>
 
-            return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + (!!Params ? "?" + Params : ""), null, callback, entityName);
+            return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + (!!Params ? "?" + Params : ""), null, callback, ErrorHandler, entityName);
         },
-        RetrieveMultiple: function (entityName, query, callback) {
-            return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + (!!query ? "?" + query : ""), null, callback, entityName);
+        RetrieveMultiple: function (entityName, query, callback, ErrorHandler) {
+            return ExecuteRequest("GET", WebAPIToolkit.Common.GetPluralName(entityName) + (!!query ? "?" + query : ""), null, callback, ErrorHandler, entityName);
         },
-        Create: function (entityName, jsonObject, callback) {
+        Create: function (entityName, jsonObject, callback, ErrorHandler) {
             /// <summary>Creates a record</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="jsonObject" type="object">JSON</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
             /// <returns>ID of the created record if sync</returns>
 
-            return ExecuteRequest("POST", WebAPIToolkit.Common.GetPluralName(entityName), JSON.stringify(jsonObject), callback, entityName);
+            return ExecuteRequest("POST", WebAPIToolkit.Common.GetPluralName(entityName), JSON.stringify(jsonObject), callback, ErrorHandler, entityName);
         },
-        Update: function (entityName, id, jsonObject, callback) {
+        Update: function (entityName, id, jsonObject, callback, ErrorHandler) {
             /// <summary>Updates a record</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="id" type="guid">ID of the record</param>
             /// <param name="jsonObject" type="object">JSON</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
 
             var loop = false;
             // Check whether there are empty lookups in the object
@@ -615,7 +782,7 @@ WebAPIToolkit.Web = function () {
                         if (!!callback) {
                             ExecuteRequest("DELETE", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + key.replace("@odata.bind", "") + "/$ref", null, function (ID, p1, p2, p3, p4) {
                                 WebAPIToolkit.Web.Update(p1, p2, p3, p4);
-                            }, null, entityName, id, jsonObject, callback);
+                            }, null, entityName, id, jsonObject, callback, ErrorHandler);
                             loop = true;
                             break;
                         } else {
@@ -626,18 +793,19 @@ WebAPIToolkit.Web = function () {
             }
 
             if (!loop) {
-                return ExecuteRequest("PATCH", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/", JSON.stringify(jsonObject), callback, entityName);
+                return ExecuteRequest("PATCH", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/", JSON.stringify(jsonObject), callback, ErrorHandler, entityName);
             }
         },
-        Delete: function (entityName, id, callback) {
+        Delete: function (entityName, id, callback, ErrorHandler) {
             /// <summary>Deletes a record</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="id" type="guid">ID of the record</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
 
-            return ExecuteRequest("DELETE", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/", null, callback, entityName);
+            return ExecuteRequest("DELETE", WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/", null, callback, ErrorHandler, entityName);
         },
-        Associate: function (relationshipName, targetEntityName, targetId, relatedEntityName, relatedID, callback) {
+        Associate: function (relationshipName, targetEntityName, targetId, relatedEntityName, relatedID, callback, ErrorHandler) {
             /// <summary>Associates two records</summary>
             /// <param name="relationshipName" type="string">Name of the relationship</param>
             /// <param name="targetEntityName" type="guid">Logicalname of the target entity</param>
@@ -645,13 +813,14 @@ WebAPIToolkit.Web = function () {
             /// <param name="relatedEntityName" type="guid">Logicalname of the related entity</param>
             /// <param name="relatedID" type="guid">ID of the related record</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
 
             return ExecuteRequest("POST", WebAPIToolkit.Common.GetPluralName(targetEntityName) + "(" + WebAPIToolkit.Common.ParseGUID(targetId) + ")/" + relationshipName + "/$ref",
                 JSON.stringify({
                     "@odata.id": WebAPIToolkit.Common.Merge(GetServerUrl(), WebAPIToolkit.Common.GetApiURL() + WebAPIToolkit.Common.GetPluralName(relatedEntityName) + "(" + relatedID + ")")
-                }), callback);
+                }), callback, ErrorHandler);
         },
-        Disassociate: function (relationshipName, targetEntityName, targetId, relatedEntityName, relatedID, callback) {
+        Disassociate: function (relationshipName, targetEntityName, targetId, relatedEntityName, relatedID, callback, ErrorHandler) {
             /// <summary>Disassociates two records</summary>
             /// <param name="relationshipName" type="string">Name of the relationship</param>
             /// <param name="targetEntityName" type="string">Logicalname of the target entity</param>
@@ -659,30 +828,33 @@ WebAPIToolkit.Web = function () {
             /// <param name="relatedEntityName" type="string">Logicalname of the related entity</param>
             /// <param name="relatedID" type="guid">ID of the related record</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
 
             return ExecuteRequest("DELETE", WebAPIToolkit.Common.GetPluralName(targetEntityName) + "(" + WebAPIToolkit.Common.ParseGUID(targetId) + ")/" + relationshipName + "/$ref?$id=" +
-                                             WebAPIToolkit.Common.Merge(GetServerUrl(), WebAPIToolkit.Common.GetApiURL() + WebAPIToolkit.Common.GetPluralName(relatedEntityName) + "(" + relatedID + ")"), null, callback);
+                WebAPIToolkit.Common.Merge(GetServerUrl(), WebAPIToolkit.Common.GetApiURL() + WebAPIToolkit.Common.GetPluralName(relatedEntityName) + "(" + relatedID + ")"), null, callback, ErrorHandler);
         },
-        SetState: function (entityName, id, stateCode, statusCode, callback) {
+        SetState: function (entityName, id, stateCode, statusCode, callback, ErrorHandler) {
             /// <summary>Sets the state of a record</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="id" type="guid">ID of the entity</param>
             /// <param name="stateCode" type="int">StateCode value</param>
             /// <param name="statusCode" type="int">StatusCode value</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
 
             return WebAPIToolkit.Web.Update(entityName, id, {
                 statecode: stateCode,
                 statuscode: statusCode
-            }, callback, entityName);
+            }, callback, ErrorHandler, entityName);
         },
-        Assign: function (entityName, id, assigneeEntityName, assigneeId, callback) {
+        Assign: function (entityName, id, assigneeEntityName, assigneeId, callback, ErrorHandler) {
             /// <summary>Assigns a record to a user or team</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="id" type="guid">ID of the entity</param>
             /// <param name="assigneeEntityName" type="int">systemuser or team</param>
             /// <param name="assigneeId" type="int">assigneeId</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
 
             if (assigneeEntityName.toLowerCase().trim() != "systemuser" && assigneeEntityName.toLowerCase().trim() != "team") {
                 throw new WebAPIToolkit.Exceptions.ArgumentException(WebAPIToolkit.Common.IncorrectLogicalnameForAssignment);
@@ -690,18 +862,39 @@ WebAPIToolkit.Web = function () {
 
             var be = new WebAPIToolkit.BusinessEntity(entityName, id);
             be.SetLookup("ownerid", assigneeEntityName, assigneeId);
-            be.Update(callback);
+            be.Update(callback, ErrorHandler);
         },
-        ClearLookup: function (entityName, id, field, callback) {
+        ClearLookup: function (entityName, id, field, callback, ErrorHandler) {
             /// <summary>Clears a lookup in a record</summary>
             /// <param name="entityName" type="string">Logicalname of the entity</param>
             /// <param name="id" type="guid">ID of the record</param>
             /// <param name="field type="string">Lookup-field</param>
             /// <param name="Callback" type="function">Callback-method if async</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
 
             return ExecuteRequest("DELETE",
-                WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + field + "/$ref", null, callback, entityName);
-        }
+                WebAPIToolkit.Common.GetPluralName(entityName) + "(" + WebAPIToolkit.Common.ParseGUID(id) + ")/" + field + "/$ref", null, callback, ErrorHandler, entityName);
+        },
+        ExecuteWorkflow: function (workflowId, targetRecordId, callback, ErrorHandler) {
+            /// <summary>Executes a workflow</summary>
+            /// <param name="onSuccess" type="function">Callback on success</param>
+            /// <param name="onError" type="function">Callback on error</param>
+            /// <param name="workflowId" type="guid">ID of the workflow record</param>
+            /// <param name="targetRecordId" type="guid">ID of the target record</param>
+            /// <param name="ErrorHandler" type="function">Error-Callback-method if async</param>
+
+            if (!!workflowId && !!targetRecordId) {
+
+                var jsonObject = {
+                    "EntityId": targetRecordId
+                }
+
+                return ExecuteRequest("POST", "workflows(" + workflowId + ")/Microsoft.Dynamics.CRM.ExecuteWorkflow", JSON.stringify(jsonObject), callback, ErrorHandler);
+            }
+            else {
+                throw "No given Workflow Id or/and Target record Id";
+            }
+        },
     };
 
 }();
