@@ -22,15 +22,15 @@ Version 1.0.0.1:
 Version 1.0.0.2: 
  - Since CRM V.8.2.1.207 the retrievement of fetchXML does not need twice encodeURIComponent anymore
 *****************************************************************************************************************
-* Version 1.0.0.3: 
-* - Since CRM V.9.x the retrievement of fetchXML is made with a batchrequest (https://docs.microsoft.com/en-us/dynamics365/customer-engagement/developer/webapi/execute-batch-operations-using-web-api)
+Version 1.0.0.3: 
+ - Since CRM V.9.x the retrievement of fetchXML is made with a batchrequest (https://docs.microsoft.com/en-us/dynamics365/customer-engagement/developer/webapi/execute-batch-operations-using-web-api)
 *****************************************************************************************************************
-* Version 1.0.0.4: 
-* - Adding Errorhandling for all asynchronous calls
-* - Added function ExecuteWorkflow()
-* - Added new parameter for Fetch(): 
-*       All: Retrieves all records for all pages for the given query
-* **MIRGATION to 1.0.0.4**
-* .> Since CRM 9.0 the result of a LinkedEntity + attribute is returned differently. 
-*    Instead of <Alias>_x002e_<Attribute> the result is <Alias>.<Attribute>. Adjust your code accordingly.
+Version 1.0.0.4: 
+ - Adding Errorhandling for all asynchronous calls
+ - Added function ExecuteWorkflow()
+ - Added new parameter for Fetch(): 
+       All: Retrieves all records for all pages for the given query
+ **MIRGATION to 1.0.0.4**
+ .> Since CRM 9.0 the result of a LinkedEntity + attribute is returned differently. 
+    Instead of <Alias>_x002e_<Attribute> the result is <Alias>.<Attribute>. Adjust your code accordingly.
 *****************************************************************************************************************
